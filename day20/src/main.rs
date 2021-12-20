@@ -47,8 +47,7 @@ fn run(input: &str, count: usize) -> usize {
 fn process(image: &Image, key: &[u8]) -> Image {
     let width = image.width+2;
     let height = image.px.len()/image.width + 2;
-    let mut px = Vec::new();
-    px.resize(height*width, b'.');
+    let mut px = vec![b'.';height*width];
     
     let bg = if image.bg == b'.' { b'#' } else { b'.' };
 
