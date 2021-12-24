@@ -1,21 +1,26 @@
-use std::collections::{HashMap, VecDeque, BinaryHeap};
+use std::{collections::{BinaryHeap, HashMap}, fmt::Write};
 
 fn main() {
-    let input = include_str!("input");
-    dbg!(part1(input));
+    let input1 = include_str!("input");
+    dbg!(run(input1));
+
+    let mut lines = input1.lines();
+    let mut input2 = String::new();
+    writeln!(&mut input2, "{}", lines.next().unwrap()).unwrap();
+    writeln!(&mut input2, "{}", lines.next().unwrap()).unwrap();
+    writeln!(&mut input2, "{}", lines.next().unwrap()).unwrap();
+    writeln!(&mut input2, "  #D#C#B#A#").unwrap();
+    writeln!(&mut input2, "  #D#B#A#C#").unwrap();
+    while let Some(s) = lines.next() {
+        writeln!(&mut input2, "{}", s).unwrap();
+    }
+    dbg!(run(&input2));
 }
 
 struct Map {
     data: Vec<u8>,
     width: usize,
-}
-
-impl Map {
-    fn is_space(&self, x: u8, y: u8) -> bool {
-        let x: usize = x.into();
-        let y: usize = y.into();
-        self.data[y * self.width + x] != b'#'
-    }
+    room_maxy: i8,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -68,9 +73,9 @@ impl Anthropod {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct State {
-    apods: [Anthropod; 8],
+    apods: Vec<Anthropod>
 }
 
 const HALLWAY: i8 = 1;
@@ -120,7 +125,7 @@ impl State {
         result
     }
 
-    fn reachable_homerooms(&self, i: usize) -> Vec<[i8; 2]> {
+    fn reachable_homeroom(&self, i: usize, map: &Map) -> Vec<[i8; 2]> {
         let targetx = match self.apods[i].kind {
             b'A' => 3,
             b'B' => 5,
@@ -149,19 +154,16 @@ impl State {
                 }
             }
         }
-        if pos[1] == 1 {
-            let nextpos = match self.at([pos[0],3]) {
-                Some(k) => if k == self.apods[i].kind { [pos[0],2] } else { return vec![]; }
-                None => if self.is_open([pos[0],2]) { [pos[0],3] } else { return vec![]; }
-            };
-            return vec![nextpos];
-        } else if pos[1] == 2 {
-            pos[1] = 3;
-            if self.is_open(pos) {
-                return vec![pos];
+        
+        let mut last_openy = 1;
+        for y in 2..=map.room_maxy {
+            match self.at([pos[0], y]) {
+                Some(k) if k != self.apods[i].kind => return vec![],
+                None => last_openy = y,
+                _ => (),
             }
         }
-        vec![]
+        vec![[pos[0],last_openy]]
     }
 
     fn is_open(&self, pos: [i8; 2]) -> bool {
@@ -177,15 +179,25 @@ impl State {
 
         match apod.loc() {
             Location::HomeRoom => {
-                let mut r = self.reachable_homerooms(i);
-                if apod.pos[1] == 2 {
-                    r.append(&mut self.reachable_hallways(i, map));
+                if self.should_move(i, map) {
+                    self.reachable_hallways(i, map)
+                } else {
+                    vec![]
                 }
-                r
             }
             Location::OtherRoom => self.reachable_hallways(i, map),
-            Location::Hallway => self.reachable_homerooms(i),
+            Location::Hallway => self.reachable_homeroom(i, map),
         }
+    }
+
+    fn should_move(&self, i: usize, map: &Map) -> bool {
+        let apod = self.apods[i];
+        for y in (apod.pos[1]..=map.room_maxy).rev() {
+            if self.at([apod.pos[0],y]).unwrap() != apod.kind {
+                return true;
+            }
+        }
+        return false;
     }
 
     fn actions(&self, energy: usize, map: &Map) -> Vec<(State, usize)> {
@@ -220,6 +232,7 @@ impl State {
 fn parse(input: &str) -> (State, Map) {
     let input = input.trim();
     let width = input.lines().next().unwrap().trim().len();
+    let room_maxy = (input.lines().count()-2).try_into().unwrap();
     let map: Vec<u8> = input
         .lines()
         .map(|s| {
@@ -245,23 +258,23 @@ fn parse(input: &str) -> (State, Map) {
         .collect();
     (
         State {
-            apods: apods.try_into().unwrap(),
+            apods,
         },
-        Map { data: map, width },
+        Map { data: map, width, room_maxy },
     )
 }
 
-fn part1(input: &str) -> usize {
+fn run(input: &str) -> usize {
     let (state, map) = parse(input);
     let mut best_energy: HashMap<State, usize> = HashMap::new();
 
     let mut work = BinaryHeap::new();
-    work.push((0usize,state));
+    work.push((0usize, state));
     let mut best_win = usize::MAX;
 
     while let Some((energy, state)) = work.pop() {
         for (next, energy) in state.actions(energy, &map) {
-            let prev_best = best_energy.entry(next).or_insert(usize::MAX);
+            let prev_best = best_energy.entry(next.clone()).or_insert(usize::MAX);
             if *prev_best > energy {
                 *prev_best = energy;
                 if next.is_winning() {
@@ -285,7 +298,7 @@ fn test_part1() {
   #A#D#C#A#
   #########
 ";
-    assert_eq!(part1(input), 12521);
+    assert_eq!(run(input), 12521);
 }
 
 #[test]
@@ -297,7 +310,7 @@ fn test_1step() {
   #########";
     let (start, map) = parse(start);
     let mut step1 = start.clone();
-    step1.apods[2].pos = [4,1];
+    step1.apods[2].pos = [4, 1];
     let nexts = start.actions(0, &map);
     assert!(nexts.contains(&(step1, 40)));
 }
